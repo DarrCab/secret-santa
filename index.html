@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Secret Santa Draw</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f7f3e9;color:#153a30;font:16px system-ui,sans-serif}header{background:#123a30;color:#fff9ec;text-align:center;padding:56px 20px 70px;background-image:radial-gradient(ellipse at top,#236451,transparent 78%)}.star{color:#f3c77f;font-size:32px;letter-spacing:18px;padding-left:18px}h1{font:clamp(45px,8vw,82px)/1 Georgia,serif;margin:14px 0}header p{color:#e4ede3}main{max-width:680px;margin:-25px auto 40px;padding:0 16px}section{background:#fffdf8;border:1px solid #dfd9ca;padding:clamp(20px,5vw,38px);border-radius:22px;box-shadow:0 12px 34px #153a3010}h2{font:32px Georgia,serif;margin:0 0 12px}label{display:block;font-weight:650;margin-bottom:8px}textarea{width:100%;padding:14px;background:#faf8f1;border:1px solid #9caa9f;border-radius:10px;font:inherit;color:inherit;resize:vertical}button{font:inherit;font-weight:650;color:white;background:#9c303c;border:0;border-radius:9px;padding:12px 16px;cursor:pointer}button:hover{background:#7e202c}button.secondary{background:#e8efe7;color:#153a30}button:focus-visible,textarea:focus-visible{outline:3px solid #b47922;outline-offset:3px}.row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px}.muted{color:#49645a}.error{color:#9c303c}ul{list-style:none;padding:0}li{margin:8px 0}li button{width:100%;text-align:left}dialog{background:#fffdf8;color:#153a30;border:1px solid #dfd9ca;border-radius:18px;padding:28px;width:min(440px,calc(100% - 32px))}dialog::backdrop{background:#09231ed9}#recipient{font:36px Georgia,serif;overflow-wrap:anywhere}footer{text-align:center;padding:0 20px 30px}
+</style>
+<header><div class="star" aria-hidden="true">✧ ✷ ✧</div><h1>Secret Santa</h1><p>Draw a name. Keep the surprise.</p></header>
+<main><section id="setup"><h2>Make your list</h2><form id="form"><label for="names">Friends’ names</label><textarea id="names" rows="6" placeholder="One name per line" required></textarea><div class="row"><span id="count" class="muted">0 participants</span><button>Draw names</button></div><p class="error" id="error" role="alert" hidden></p></form></section>
+<section id="results" hidden><h2>Your draw is ready</h2><p class="muted">Copy each friend’s link and send it to them privately. Anyone who has a link can reveal its assignment.</p><ul id="list"></ul><button id="edit" class="secondary">Start a new draw</button></section>
+<section id="reveal" hidden><h2 id="person">Your Secret Santa assignment</h2><button id="open">Reveal my recipient</button><p id="recipient" aria-live="polite" hidden></p></section></main>
+<footer id="hint" class="muted">Copy your links before closing or refreshing this tab.</footer>
+<script>
+const byId = id => document.getElementById(id);
+const names = byId('names');
+function encodeAssignment(assignment) {
+  const bytes = new TextEncoder().encode(JSON.stringify(assignment));
+  return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
+    .replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+function decodeAssignment(token) {
+  const bytes = Uint8Array.from(atob(token.replaceAll('-', '+').replaceAll('_', '/')), char => char.charCodeAt(0));
+  const assignment = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
+  if (!Array.isArray(assignment) || assignment.length !== 2 ||
+      assignment.some(name => typeof name !== 'string' || !name.trim())) {
+    throw new Error('Invalid assignment');
+  }
+  return assignment;
+}
+const token = location.hash.slice(1);
+if (token) {
+  byId('setup').hidden = true;
+  byId('hint').hidden = true;
+  byId('reveal').hidden = false;
+  try {
+    const [giver, recipient] = decodeAssignment(token);
+    byId('person').textContent = 'Secret Santa for ' + giver;
+    byId('open').onclick = () => {
+      byId('open').hidden = true;
+      byId('recipient').hidden = false;
+      byId('recipient').textContent = 'You’re shopping for ' + recipient + '!';
+    };
+  } catch {
+    byId('person').textContent = 'This reveal link is invalid';
+    byId('open').hidden = true;
+    byId('recipient').hidden = false;
+    byId('recipient').textContent = 'Ask your organizer to resend your link.';
+  }
+}
+const parse = () => names.value.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
+names.addEventListener('input', () => {
+  const size = parse().length;
+  byId('count').textContent = size + (size === 1 ? ' participant' : ' participants');
+  byId('error').hidden = true;
+});
+function draw(people) {
+  const recipients = [...people];
+  do {
+    for (let i = recipients.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [recipients[i], recipients[j]] = [recipients[j], recipients[i]];
+    }
+  } while (recipients.some((name, i) => name === people[i]));
+  return recipients;
+}
+byId('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const people = parse();
+  const duplicates = new Set(people.map(name => name.toLowerCase())).size !== people.length;
+  if (people.length < 2 || duplicates) {
+    const error = byId('error');
+    error.textContent = duplicates ? 'Give each participant a unique name, for example by adding a last initial.' : 'Enter at least two names.';
+    error.hidden = false;
+    return;
+  }
+  const recipients = draw(people);
+  const list = byId('list');
+  list.replaceChildren();
+  people.forEach((name, i) => {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    button.className = 'secondary';
+    const link = new URL(location.href);
+    link.hash = encodeAssignment([name, recipients[i]]);
+    button.textContent = 'Copy link for ' + name;
+    const status = document.createElement('span');
+    status.setAttribute('role', 'status');
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(link.href);
+        status.textContent = 'Copied link for ' + name + '.';
+      } catch {
+        window.prompt('Copy the link for ' + name, link.href);
+      }
+    });
+    item.append(button, status);
+    list.append(item);
+  });
+  byId('setup').hidden = true;
+  byId('results').hidden = false;
+  list.querySelector('button').focus();
+});
+byId('edit').onclick = () => {
+  if (!confirm('Discard the current assignments and start a new draw?')) return;
+  byId('results').hidden = true;
+  byId('list').replaceChildren();
+  byId('setup').hidden = false;
+  names.focus();
+};
+</script></html>
